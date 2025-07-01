@@ -1,5 +1,26 @@
 {
   "nodes": {
+    "esp-dev": {
+      "inputs": {
+        "flake-utils": "flake-utils",
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1746690306,
+        "narHash": "sha256-bMp4BCrTOX7VDLVU8TzMSQj1hviBrARz9iiqNq6Vbnk=",
+        "owner": "mirrexagon",
+        "repo": "nixpkgs-esp-dev",
+        "rev": "6c34f2436015eb6c107970d9b88f3d5d4600c6fa",
+        "type": "github"
+      },
+      "original": {
+        "owner": "mirrexagon",
+        "repo": "nixpkgs-esp-dev",
+        "type": "github"
+      }
+    },
     "flake-utils": {
       "inputs": {
         "systems": "systems"
@@ -34,31 +55,10 @@
         "type": "github"
       }
     },
-    "nixpkgs-esp-dev": {
-      "inputs": {
-        "flake-utils": "flake-utils",
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1746690306,
-        "narHash": "sha256-bMp4BCrTOX7VDLVU8TzMSQj1hviBrARz9iiqNq6Vbnk=",
-        "owner": "mirrexagon",
-        "repo": "nixpkgs-esp-dev",
-        "rev": "6c34f2436015eb6c107970d9b88f3d5d4600c6fa",
-        "type": "github"
-      },
-      "original": {
-        "owner": "mirrexagon",
-        "repo": "nixpkgs-esp-dev",
-        "type": "github"
-      }
-    },
     "root": {
       "inputs": {
-        "nixpkgs": "nixpkgs",
-        "nixpkgs-esp-dev": "nixpkgs-esp-dev"
+        "esp-dev": "esp-dev",
+        "nixpkgs": "nixpkgs"
       }
     },
     "systems": {

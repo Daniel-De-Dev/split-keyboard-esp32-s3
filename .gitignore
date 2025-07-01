@@ -1,1 +1,11 @@
-.ccls-cache
+build/
+*.o
+*.d
+*.elf
+*.bin
+
+.clangd
+
+managed_components/
+
+sdkconfig
