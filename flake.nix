@@ -23,6 +23,7 @@
 
         buildInputs = with pkgs; [
           esp-idf-esp32s3
+          clang-tools
         ];
       };
     };
