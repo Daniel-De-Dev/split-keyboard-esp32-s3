@@ -6,9 +6,35 @@
 #include "tinyusb.h"
 #include "class/hid/hid_device.h"
 #include "driver/gpio.h"
+#include "esp_rom_gpio.h"
+#include "soc/io_mux_reg.h"
+#include "soc/gpio_struct.h"
 
-#define BOOT_BUTTON GPIO_NUM_0
 static const char *TAG = "usb_kbd";
+
+/* ---------------------------------- Pins --------------------------------- */
+
+#define NUM_COLS 7
+#define NUM_ROWS 6
+
+static const gpio_num_t row_pins[NUM_ROWS] = {
+    GPIO_NUM_9,
+    GPIO_NUM_10,
+    GPIO_NUM_11,
+    GPIO_NUM_12,
+    GPIO_NUM_13,
+    GPIO_NUM_14
+};
+
+static const gpio_num_t col_pins[NUM_COLS] = {
+    GPIO_NUM_4,
+    GPIO_NUM_5,
+    GPIO_NUM_6,
+    GPIO_NUM_7,
+    GPIO_NUM_15,
+    GPIO_NUM_16,
+    GPIO_NUM_17
+};
 
 /* ------------------------------ Descriptors ------------------------------ */
 
@@ -71,7 +97,54 @@ uint16_t tud_hid_get_report_cb(uint8_t, uint8_t, hid_report_type_t,
 void tud_hid_set_report_cb(uint8_t, uint8_t, hid_report_type_t,
                            uint8_t const*, uint16_t) {}
 
-/* ----------------------------- Send Keypress ----------------------------- */
+/* --------------------------- Helper Functions ---------------------------- */
+
+// Generate a bitmask represeting a group of pins
+static uint64_t make_mask(const gpio_num_t *p, size_t n) {
+    uint64_t m = 0;
+    for (size_t i = 0; i < n; i++)
+        m |= BIT64(p[i]);
+    return m;
+}
+
+static inline void gpio_set_level_multi(uint64_t mask, uint32_t level) {
+    if (level)
+        GPIO.out_w1ts = mask;
+    else
+        GPIO.out_w1tc = mask;
+}
+
+// Intilizes the pins based on roles
+void matrix_gpio_init(void) {
+
+    // Columns: open-drain outputs, idle released
+    uint64_t col_mask = make_mask(col_pins, NUM_COLS);
+
+    gpio_config_t col_io = {
+        .pin_bit_mask   = col_mask,
+        .mode           = GPIO_MODE_OUTPUT_OD,
+        .pull_up_en     = GPIO_PULLUP_DISABLE,
+        .pull_down_en   = GPIO_PULLDOWN_DISABLE,
+        .intr_type      = GPIO_INTR_DISABLE
+    };
+    ESP_ERROR_CHECK(gpio_config(&col_io));
+
+    // Columns start released
+    gpio_set_level_multi(col_mask, 1);
+
+
+    // Rows: inputs with internal pull-up
+    gpio_config_t row_io = {
+        .pin_bit_mask   = make_mask(row_pins, NUM_ROWS),
+        .mode           = GPIO_MODE_INPUT,
+        .pull_up_en     = GPIO_PULLUP_ENABLE,
+        .pull_down_en   = GPIO_PULLDOWN_DISABLE,
+        .intr_type      = GPIO_INTR_DISABLE
+    };
+    ESP_ERROR_CHECK(gpio_config(&row_io));
+
+    // Todo interrupt init
+}
 
 static void send_key_A(void)
 {
@@ -86,14 +159,8 @@ static void send_key_A(void)
 
 void app_main(void)
 {
-    // Configure BOOT button as input with pull-up
-    const gpio_config_t btn_cfg = {
-        .pin_bit_mask = BIT64(BOOT_BUTTON),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = true,
-    };
-
-    gpio_config(&btn_cfg);
+    matrix_gpio_init();
+    ESP_LOGI(TAG, "Pins Configured");
 
     const tinyusb_config_t usb_cfg = {
         .string_descriptor = string_desc,
@@ -104,14 +171,12 @@ void app_main(void)
     tinyusb_driver_install(&usb_cfg);
     ESP_LOGI(TAG, "USB ready");
 
+
+        
+
+
+
     while (true) {
-        if (tud_mounted() && !gpio_get_level(BOOT_BUTTON)) {
-            ESP_LOGI(TAG, "Sent character");
-            send_key_A();
-            while (!gpio_get_level(BOOT_BUTTON)) {
-                vTaskDelay(pdMS_TO_TICKS(10));
-            }
-        }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
