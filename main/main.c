@@ -9,6 +9,7 @@
 #include "esp_rom_gpio.h"
 #include "soc/io_mux_reg.h"
 #include "soc/gpio_struct.h"
+#include "rom/ets_sys.h"
 
 static const char *TAG = "usb_kbd";
 
@@ -34,6 +35,18 @@ static const gpio_num_t col_pins[NUM_COLS] = {
     GPIO_NUM_15,
     GPIO_NUM_16,
     GPIO_NUM_17
+};
+
+// Place holder mappings for now
+const uint8_t keymap[NUM_ROWS][NUM_COLS] = {
+  { HID_KEY_Q,   HID_KEY_W,  HID_KEY_E,  HID_KEY_R,  HID_KEY_T, HID_KEY_Y, HID_KEY_U },
+  { HID_KEY_A,   HID_KEY_S,  HID_KEY_D,  HID_KEY_F,  HID_KEY_G, HID_KEY_H, HID_KEY_J },
+  { HID_KEY_Z,   HID_KEY_X,  HID_KEY_C,  HID_KEY_V,  HID_KEY_B, HID_KEY_N, HID_KEY_M },
+  { HID_KEY_1,   HID_KEY_2,  HID_KEY_3,  HID_KEY_4,  HID_KEY_5, HID_KEY_6, HID_KEY_7 },
+  { HID_KEY_SHIFT_LEFT, HID_KEY_SPACE, HID_KEY_ENTER,
+    HID_KEY_CONTROL_LEFT,  HID_KEY_ALT_LEFT, HID_KEY_TAB, HID_KEY_BACKSPACE },
+  { HID_KEY_ESCAPE, HID_KEY_MINUS, HID_KEY_EQUAL,
+        HID_KEY_BRACKET_LEFT, HID_KEY_BRACKET_RIGHT, HID_KEY_SEMICOLON, HID_KEY_APOSTROPHE }
 };
 
 /* ------------------------------ Descriptors ------------------------------ */
@@ -146,12 +159,80 @@ void matrix_gpio_init(void) {
     // Todo interrupt init
 }
 
-static void send_key_A(void)
-{
-    uint8_t pressed[6] = { HID_KEY_A };
-    tud_hid_keyboard_report(REPORT_ID_KEYBOARD, 0, pressed);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    tud_hid_keyboard_report(REPORT_ID_KEYBOARD, 0, NULL);
+/* ------------------------ Scan (& Debounce) Logic ------------------------ */
+
+#define SCAN_PERIOD_US   1000
+#define DEBOUNCE_MS      5
+
+/* one byte per row, where each bit is its column */
+static uint8_t stable[NUM_ROWS];
+static uint8_t raw[NUM_ROWS];
+static uint8_t cnt[NUM_ROWS][NUM_COLS];
+
+static inline void col_select(int c) {
+    gpio_set_level(col_pins[c], 0);
+}
+static inline void col_release(int c) {
+    gpio_set_level(col_pins[c], 1);
+}
+
+static void scan_matrix_once(void) {
+    memset(raw, 0, sizeof(raw));
+
+    for (int c = 0; c < NUM_COLS; ++c) {
+        col_select(c);
+        ets_delay_us(3);
+        for (int r = 0; r < NUM_ROWS; ++r)
+            if (!gpio_get_level(row_pins[r]))
+                raw[r] |= 1 << c;
+        col_release(c);
+    }
+}
+
+static bool debounce(void) {
+    bool changed = false;
+
+    for (int r = 0; r < NUM_ROWS; ++r) {
+        uint8_t diff = raw[r] ^ stable[r];
+        if (!diff) continue;
+
+        for (int c = 0; c < NUM_COLS; ++c) {
+            if (!(diff & (1 << c))) { cnt[r][c] = 0; continue; }
+
+            if (++cnt[r][c] >= (DEBOUNCE_MS * 1000 / SCAN_PERIOD_US)) {
+                stable[r] ^= 1 << c;                // toggle debounced state
+                cnt[r][c] = 0;
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
+void matrix_task(void *arg) {
+    while (true) {
+        scan_matrix_once();
+        if (debounce()) {
+            /* build + send HID report only when something changed */
+            uint8_t mods = 0, keybuf[6] = {0};
+            size_t  idx = 0;
+
+            for (int r = 0; r < NUM_ROWS; ++r)
+                for (int c = 0; c < NUM_COLS; ++c)
+                    if (stable[r] & (1 << c)) {
+                        uint8_t code = keymap[r][c];
+                        if (code >= HID_KEY_CONTROL_LEFT && code <= HID_KEY_GUI_RIGHT)
+                            mods |= 1 << (code - HID_KEY_CONTROL_LEFT);
+                        else if (idx < 6)
+                            keybuf[idx++] = code;
+                    }
+
+            tud_hid_keyboard_report(REPORT_ID_KEYBOARD,
+                                    mods,
+                                    keybuf);
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
 }
 
 
@@ -167,16 +248,8 @@ void app_main(void)
         .string_descriptor_count = sizeof(string_desc)/sizeof(string_desc[0]),
         .configuration_descriptor = cfg_desc,
     };
-
     tinyusb_driver_install(&usb_cfg);
     ESP_LOGI(TAG, "USB ready");
 
-
-        
-
-
-
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-    }
+    matrix_task(NULL);
 }
